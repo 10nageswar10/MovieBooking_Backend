@@ -15,7 +15,7 @@ require('dotenv').config();
 require('./db');
 
 app.use(bodyParser.json());
-const allowedOrigins=['http://localhost:3000','http://localhost:3001','https://movie-booking-frontend-njyy2k316-10nageswar10s-projects.vercel.app'] //this frontend can use our backend
+const allowedOrigins=['http://localhost:3000','http://localhost:3001',process.env.NEXT_VERSAL_URL] //this frontend can use our backend
 
 app.use(cors({
     origin: function(origin,callback){
