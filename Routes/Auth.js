@@ -268,12 +268,12 @@ router.post('/login',async(req,res,next)=>{
     res.cookie('authToken',authToken,{
         httpOnly: true, // Prevents JavaScript access
         secure: true, // Use this in production with HTTPS
-        sameSite: 'Lax',
+        sameSite: 'None',
     });
     res.cookie('refreshToken',refreshToken,{
         httpOnly: true, // Prevents JavaScript access
         secure: true, // Use this in production with HTTPS
-        sameSite: 'Lax',
+        sameSite: 'None',
     });
 
     res.status(200).json(createResponse(true,'Login Successful',{
