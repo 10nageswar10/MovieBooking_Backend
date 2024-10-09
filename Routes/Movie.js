@@ -307,7 +307,6 @@ router.get('/screensbymovieschedule/:city/:date/:movie_id',async(req,res,next)=>
             })
         })
         const filteredScreens=screens.filter(screen=>uniqueScreen.has(screen._id));
-        console.log(filteredScreens)
         res.status(200).json(createResponse(true,'screens retrieved successfully',filteredScreens))
     }
     catch(err){
