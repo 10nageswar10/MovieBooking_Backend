@@ -6,7 +6,7 @@ const City=require('../Models/CitySchema');
 const errorHandler=require('../Middleware/errorMiddleware');
 const authTokenHandler=require('../Middleware/checkAuthToken');
 const jwt=require('jsonwebtoken');
-const bcrypt=require('bcrypt');
+const bcrypt=require('bcryptjs');
 const nodemailer=require('nodemailer');
 
 require('dotenv').config();

@@ -1,7 +1,7 @@
 const express=require('express');
 const router=express.Router();
 const Admin=require('../Models/AdminSchema');
-const bcrypt=require('bcrypt');
+const bcrypt=require('bcryptjs');
 const errorHandler = require('../Middleware/errorMiddleware');
 const jwt=require('jsonwebtoken');
 const adminTokenHandler=require('../Middleware/checkAdminToken')

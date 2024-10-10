@@ -1,41 +1,61 @@
-# Use an official Node.js runtime as the base image
-FROM node:18-slim
+# Use Node.js LTS version as the base image
+FROM node:20
 
-# Install dependencies for installing Chrome
-RUN apt-get update && \
-    apt-get install -y wget gnupg ca-certificates --no-install-recommends && \
-    rm -rf /var/lib/apt/lists/*
-
-# Add Google's signing key and store it in a keyring file
-RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | \
-    gpg --dearmor -o /usr/share/keyrings/google-chrome-archive-keyring.gpg
-
-# Add the Chrome repository using the keyring file
-RUN echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome-archive-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
-    > /etc/apt/sources.list.d/google-chrome.list
+# Install dependencies for Puppeteer
+RUN apt-get update && apt-get install -y \
+    wget \
+    gnupg \
+    ca-certificates \
+    fonts-liberation \
+    libappindicator3-1 \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libgdk-pixbuf2.0-0 \
+    libnspr4 \
+    libnss3 \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libxrender1 \
+    libxext6 \
+    libxi6 \
+    libxss1 \
+    libxtst6 \
+    xdg-utils \
+    --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
 # Install Google Chrome
-RUN apt-get update && \
-    apt-get install -y google-chrome-stable --no-install-recommends && \
-    rm -rf /var/lib/apt/lists/*
+RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list' \
+    && apt-get update \
+    && apt-get install -y google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
 
-# Create app directory
+# Set the working directory inside the container
 WORKDIR /usr/src/app
 
-# Install app dependencies
+# Copy package.json and package-lock.json to the working directory
 COPY package*.json ./
 
-# Install Puppeteer dependencies
-RUN npm install
+# Install dependencies
+RUN npm install --production
 
-# Copy the rest of the application code
+# Copy the rest of the application code to the working directory
 COPY . .
 
-# Expose the port your app runs on (adjust if different)
-EXPOSE 3000
+# Expose the port your app runs on (change if different)
+EXPOSE 8000
 
-# Define environment variable for Puppeteer executable path
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+# Define environment variables (optional)
+# ENV NODE_ENV=production
 
 # Start the application
-CMD ["npm", "start"]
+CMD ["node", "index.js"]
