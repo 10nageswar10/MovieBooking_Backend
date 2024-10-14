@@ -25,8 +25,6 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
         try {
         console.log('Stripe Webhook Secret:', endpointSecret);
         const rawBody = req.body; // Get the raw body from the request
-        console.log("Raw body:", rawBody.toString('utf8')); // Correct way to log the raw body 
-
         event = stripe.webhooks.constructEvent(rawBody, sig, endpointSecret);
     }catch (err) {
         console.log(`⚠️  Webhook signature verification failed: ${err.message}`);
@@ -42,18 +40,19 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
     // Handle the event
     switch (event.type) {
         case 'charge.refunded':
-            const refund = event.data.object;
+            const charge = event.data.object; // This is the charge object
+            const paymentIntentId = charge.payment_intent; // Access payment_intent
             console.log(`Charge was refunded!`);
             
             // Find the corresponding CancelledPayments document and update its status
             await CancelledPayments.findOneAndUpdate(
-                { paymentId: refund.id },
+                { paymentId: paymentIntentId },
                 { status: 'success' },
                 { new: true }
             );
             
             // Optionally, log the updated document
-            console.log(`Updated payment status to success for payment ID: ${refund.id}`);
+            console.log(`Updated payment status to success for payment ID: ${paymentIntentId}`);
             
             break;
         // ... handle other event types
