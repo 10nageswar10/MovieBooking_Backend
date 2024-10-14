@@ -769,45 +769,54 @@ router.delete('/screens/deletescreen/:id', async (req, res, next) => {
 
 
 // stripe webhooks
+// const endpointSecret=process.env.STRIPE_WEBHOOK_SECRET;
 
+// router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+//     const sig = req.headers['stripe-signature'];
+//     let event;
 
-router.post('/webhook', bodyParser.raw({ type: 'application/json' }), async (req, res) => {
-    const sig = req.headers['stripe-signature'];
+//     if(endpointSecret){
+//         try {
+//         console.log('Stripe Webhook Secret:', endpointSecret);
+//         const rawBody = req.body; // Get the raw body from the request
+//         console.log("Raw body:", rawBody.toString('utf8')); // Correct way to log the raw body 
 
-    let event;
+//         event = stripe.webhooks.constructEvent(rawBody, sig, endpointSecret);
+//     }catch (err) {
+//         console.log(`⚠️  Webhook signature verification failed: ${err.message}`);
+//         return res.status(400).send(`Webhook Error: ${err.message}`);
+//     }
+//     }
+//     else{
+//         console.log('No Stripe Webhook Secret provided.');
+//         return res.status(400).send('No Stripe Webhook Secret provided.');
+//     }
+     
 
-    try {
-        console.log('Stripe Webhook Secret:', process.env.STRIPE_WEBHOOK_SECRET);
-        event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-    } catch (err) {
-        console.log(`⚠️  Webhook signature verification failed: ${err.message}`);
-        return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-
-    // Handle the event
-    switch (event.type) {
-        case 'charge.refunded':
-            const refund = event.data.object;
-            console.log(`Charge was refunded!`);
+//     // Handle the event
+//     switch (event.type) {
+//         case 'charge.refunded':
+//             const refund = event.data.object;
+//             console.log(`Charge was refunded!`);
             
-            // Find the corresponding CancelledPayments document and update its status
-            await CancelledPayments.findOneAndUpdate(
-                { paymentId: refund.id },
-                { status: 'success' },
-                { new: true }
-            );
+//             // Find the corresponding CancelledPayments document and update its status
+//             await CancelledPayments.findOneAndUpdate(
+//                 { paymentId: refund.id },
+//                 { status: 'success' },
+//                 { new: true }
+//             );
             
-            // Optionally, log the updated document
-            console.log(`Updated payment status to success for payment ID: ${refund.id}`);
+//             // Optionally, log the updated document
+//             console.log(`Updated payment status to success for payment ID: ${refund.id}`);
             
-            break;
-        // ... handle other event types
-        default:
-            console.log(`Unhandled event type ${event.type}`);
-    }
+//             break;
+//         // ... handle other event types
+//         default:
+//             console.log(`Unhandled event type ${event.type}`);
+//     }
 
-    // Return a response to acknowledge receipt of the event
-    res.json({ received: true });
-});
+//     // Return a response to acknowledge receipt of the event
+//     res.json({ received: true });
+// });
 router.use(errorHandler)
 module.exports=router;
