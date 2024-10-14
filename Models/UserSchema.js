@@ -15,6 +15,8 @@ const UserSchema=new mongoose.Schema({
         required:true,
         unique:true
     },
+    resetPasswordToken: String,
+    resetPasswordExpires: Date,
     bookings:{
         type:Array,
         default:[],

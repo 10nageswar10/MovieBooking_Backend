@@ -8,6 +8,8 @@ const authTokenHandler=require('../Middleware/checkAuthToken');
 const jwt=require('jsonwebtoken');
 const bcrypt=require('bcryptjs');
 const nodemailer=require('nodemailer');
+const crypto=require('crypto')
+
 
 require('dotenv').config();
 
@@ -234,6 +236,37 @@ router.post('/verifyotp',async(req,res,next)=>{
     }
 })
 
+router.post('/sendotp',async(req,res,next)=>{
+    try{
+        let {email,userId}=req.body;
+        if(!email){
+            throw Error("Empty Email is not allowed");
+        }
+        else{
+            const existingUser=await User.findOne({email:email});
+            console.log(existingUser);
+            if(existingUser){
+                const response=await sendVerificationEmail({userId,email});
+                if(response.ok){
+                    res.json(createResponse(true,'OTP sent successfully',response));
+                }
+                else{
+                    res.json(createResponse(false,response.message));
+                }
+            }
+            else{
+                throw new Error("Account with this email doesn't exist")
+            }
+        }
+    }
+    catch(err){
+        res.json({
+            status:"FAILED",
+            message:err.message,
+        })
+    }
+})
+
 router.post('/resendotpverificationcode',async(req,res)=>{
     try{
         let {userId,email}=req.body;
@@ -362,6 +395,69 @@ router.delete('/deletecity/:id', async (req, res, next) => {
     }
 });
 
+
+router.post('/forgot-password', async (req, res, next) => {
+    const { email } = req.body;
+
+    try {
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(404).json(createResponse(false, 'User not found'));
+        }
+
+        // Generate a unique reset token
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        
+        // Set the token and expiry time on the user record
+        user.resetPasswordToken = resetToken;
+        user.resetPasswordExpires = Date.now() + 3600000; // 1 hour from now
+        await user.save();
+
+        // Send the email with the reset link
+        const resetUrl = `${process.env.FRONTEND_URL}/auth/resetpassword/${resetToken}`;
+        const mailOptions = {
+            from: process.env.GMAIL_MAILID,
+            to: user.email,
+            subject: 'Password Reset Request',
+            text: `You requested a password reset. Click the link to reset your password: ${resetUrl}`,
+        };
+
+        await transporter.sendMail(mailOptions);
+        res.status(200).json(createResponse(true, 'Reset link sent to your email'));
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.post('/reset-password/:token', async (req, res, next) => {
+    const { token } = req.params;
+    const { password } = req.body;
+
+
+    try {
+        const user = await User.findOne({
+            resetPasswordToken: token,
+            resetPasswordExpires: { $gt: Date.now() }, // Token is still valid
+        });
+        if (!user) {
+            return res.status(400).json(createResponse(false, 'Invalid or expired token'));
+        }
+
+        if (!password) {
+            return res.status(400).json(createResponse(false, 'New password is required'));
+        }
+
+        // Hash the new password
+        user.password = password;
+        user.resetPasswordToken = undefined; // Clear the reset token
+        user.resetPasswordExpires = undefined; // Clear the expiry
+        await user.save();
+
+        res.status(200).json(createResponse(true, 'Password has been reset successfully'));
+    } catch (error) {
+        next(error);
+    }
+});
 
 router.use(errorHandler);
 

@@ -1,16 +1,21 @@
 const express=require('express');
 const router=express.Router();
+const bodyParser = require('body-parser');
+
 
 const User=require('../Models/UserSchema');
 const Movie=require('../Models/MovieSchema');
 const Booking=require('../Models/BookingSchema');
 const Screen=require('../Models/ScreenSchema');
 const Celeb=require('../Models/CelebSchema');
+const CancelledPayments=require('../Models/CancelledPayments')
 const errorHandler = require('../Middleware/errorMiddleware');
 const authTokenHandler=require('../Middleware/checkAuthToken')
 const adminTokenHandler=require('../Middleware/checkAdminToken')
 const {generateTicketPDF}=require('../utils/generatePDF')
 const nodemailer=require('nodemailer')
+
+const stripe=require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const cloudinary = require('cloudinary').v2;
 //qrcode
@@ -141,10 +146,16 @@ router.post('/addmovieschedulescreen',adminTokenHandler,async(req,res,next)=>{
 // user access
 router.post('/bookticket',authTokenHandler,async(req,res,next)=>{
     try{
-        const {showTime, showDate, movieId, screenId, seats, totalPrice, paymentId, paymentType}=req.body;
+        const { sessionId, bookingDetails ,paymentIntent} = req.body;
+        const {showTime, showDate, movieId, screenId, seats, totalPrice,paymentId, paymentType}=bookingDetails;
         //crate a  function to verify payment id
+         // Verify the payment with Stripe
+        const paymentIntentData = await stripe.paymentIntents.retrieve(paymentIntent);
+        if (paymentIntentData.status !== 'succeeded') {
+        return res.status(400).json(createResponse(false, 'Payment not verified'));
+        }
 
-        const screen=await Screen.findById(screenId);
+        const screen=await Screen.findById(screenId).populate('movieSchedules');
         const movie = await Movie.findById(movieId);
         if(!screen){
             return res.status(404).json(createResponse(false,'Screen not found'));
@@ -184,8 +195,12 @@ router.post('/bookticket',authTokenHandler,async(req,res,next)=>{
 
         const pdfBuffer = await generateTicketPDF(newBooking, movie, screen);
         
-        movieSchedule.notavailableseats.push(...seats);
-        await screen.save();
+        const movieScheduleUpdate = await Screen.findOneAndUpdate(
+            { _id: screenId, 'movieSchedules.movieId': movieId, 'movieSchedules.showTime': showTime, 'movieSchedules.showDate': showDate },
+            { $addToSet: { 'movieSchedules.$.notavailableseats': { $each: seats } } }, // Assuming seats is an array of seat objects
+            { new: true } // This option returns the modified document
+        );
+        
 
         user.bookings.push(newBooking._id);
         await user.save();
@@ -210,6 +225,130 @@ router.post('/bookticket',authTokenHandler,async(req,res,next)=>{
     
         await transporter.sendMail(mailOptions);
 
+    }
+    catch(err){
+        next(err);
+    }
+})
+
+
+router.post('/cancelticket', authTokenHandler, async (req, res, next) => {
+    try {
+        const { bookingId } = req.body;
+
+        // Find the booking by ID
+        const booking = await Booking.findById(bookingId);
+        if (!booking) {
+            return res.status(404).json(createResponse(false, 'Booking not found'));
+        }
+
+        // Verify the payment status with Stripe
+        const paymentIntentData = await stripe.paymentIntents.retrieve(booking.paymentId);
+        if (paymentIntentData.status !== 'succeeded') {
+            return res.status(400).json(createResponse(false, 'Payment not verified'));
+        }
+
+        // Update the movie schedule to make the seats available again
+        const screen = await Screen.findById(booking.screenId).populate('movieSchedules');
+        const normalizeDate = (date) => {
+            const d = new Date(date);
+            return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        };
+
+        // Normalize booking date
+        const bookingDate = normalizeDate(booking.showDate);
+
+        const movieSchedule = screen.movieSchedules.find(schedule => {
+            let scheduleDate = normalizeDate(schedule.showDate);
+            return (
+                scheduleDate.toISOString() === bookingDate.toISOString() &&
+                schedule.showTime === booking.showTime &&
+                schedule.movieId.toString() === booking.movieId.toString()
+            );
+        });
+
+        if (!movieSchedule) {
+            return res.status(404).json(createResponse(false, 'No movie schedule found for booking'));
+        }
+
+        movieSchedule.notavailableseats = movieSchedule.notavailableseats.filter(seat => {
+            return !booking.seats.some(bookedSeat => bookedSeat.row === seat.row && bookedSeat.col === seat.col);
+        });
+
+        await screen.save();
+
+        // Remove the booking from the user's list
+        const user = await User.findById(booking.userId);
+        user.bookings = user.bookings.filter(id => id.toString() !== bookingId);
+        await user.save();
+
+        // Remove the booking from the database
+        await Booking.findByIdAndDelete(bookingId);
+
+         // Create a CancelledPayments entry
+         const cancelledPayment = new CancelledPayments({
+            paymentId: booking.paymentId,
+            userId: booking.userId,
+            cancelledAt: new Date(),
+            bookedMovieId: booking.movieId,
+            bookedId: bookingId,
+            bookingDate: booking.showDate,
+            totalAmount: booking.totalPrice, // Assuming totalPrice is stored in the booking
+            status: 'REFUND-PENDING',
+        });
+        
+        await cancelledPayment.save();
+        // Notify the user about the cancellation via email
+        const mailOptions = {
+            from: process.env.GMAIL_MAILID,
+            to: user.email,
+            subject: 'CineSpot Movie Ticket Cancellation',
+            text: `Hello ${user.name},\n\nYour movie ticket for ${booking.movieId} has been successfully canceled.\n\nThank you.`,
+        };
+
+        await transporter.sendMail(mailOptions);
+
+        res.status(200).json(createResponse(true, 'Ticket canceled successfully'));
+    } catch (err) {
+        next(err);
+    }
+});
+
+router.get('/cancelledbookings/:userid',authTokenHandler,async(req,res,next)=>{
+    try{
+        const userId=req.params.userid;
+        const user=await User.findById(userId);
+        if(!user){
+            return res.status(404).json(createResponse(false,'User not found'));
+        }
+        const cancelledBookings=await CancelledPayments.find({userId:userId});
+        res.json(createResponse(true,'Cancelled bookings retrieved successfully',cancelledBookings ));
+    }
+    catch(err){
+        next(err);
+    }
+})
+
+router.get('/cancelrequests',adminTokenHandler,async(req,res,next)=>{
+    try{
+        const cancelledBookings = await CancelledPayments.find({ deletedAt: { $exists: false } });
+        res.json(createResponse(true,'Cancelled bookings retrieved successfully',cancelledBookings ));
+    }
+    catch(err){
+        next(err);
+    }
+})
+
+router.delete('/cancelrequest/:paymentId',adminTokenHandler,async(req,res,next)=>{
+    try{
+        const paymentId=req.params.paymentId;
+        const cancelledPayment = await CancelledPayments.findOne({ paymentId: paymentId });
+        if(!cancelledPayment){
+            return res.status(404).json(createResponse(false,'Cancelled payment not found'));
+        }
+        cancelledPayment.deletedAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+        await cancelledPayment.save();
+        res.json(createResponse(true,'Cancelled payment deleted successfully',cancelledPayment ));
     }
     catch(err){
         next(err);
@@ -582,5 +721,94 @@ router.delete('/screens/deletescreen/:id', async (req, res, next) => {
   });
 
 
+  router.post('/create-checkout-session', authTokenHandler, async (req, res) => {
+    const { seats, movieTitle, totalPrice, showTime, showDate, movieId, screenId } = req.body;
+    const movie=await Movie.findById(movieId)
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [{
+        price_data: {
+          currency: 'inr',
+          product_data: {
+            name: movieTitle,
+            images: Array.isArray(movie.portraitImgUrl) ? movie.portraitImgUrl : [movie.portraitImgUrl], // Ensure images is an array
+          },
+          unit_amount: (totalPrice/seats.length) * 100, // Amount in cents
+        },
+        quantity: seats.length,
+      }],
+      mode: 'payment',
+      success_url: `${process.env.FRONTEND_URL}/booking-success?session_id={CHECKOUT_SESSION_ID}&showTime=${encodeURIComponent(showTime)}&showDate=${encodeURIComponent(showDate)}&movieId=${encodeURIComponent(movieId)}&screenId=${encodeURIComponent(screenId)}&seats=${encodeURIComponent(JSON.stringify(seats))}&totalPrice=${totalPrice}`,
+        cancel_url: `${process.env.FRONTEND_URL}/booking-cancel`,
+        metadata: {
+            showTime,
+            showDate,
+            movieId,
+            screenId,
+            seats: JSON.stringify(seats), // Store seats as a string
+            totalPrice: totalPrice.toString(), // Store total price as a string
+        },
+    });
+    console.log('Created session:', session.id); // Log the session ID
+    res.json({ id: session.id });
+  });
+
+
+  router.get('/checkout-session/:sessionId', async (req, res) => {
+    const { sessionId } = req.params;
+
+    try {
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+        res.json(session);
+    } catch (error) {
+        console.error('Error retrieving session:', error);
+        res.status(500).json({ error: 'Failed to retrieve session' });
+    }
+});
+  
+
+
+// stripe webhooks
+
+router.use(bodyParser.raw({ type: 'application/json' }));
+
+router.post('/webhook', async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+
+    let event;
+
+    try {
+        console.log('Stripe Webhook Secret:', process.env.STRIPE_WEBHOOK_SECRET);
+        event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    } catch (err) {
+        console.log(`⚠️  Webhook signature verification failed: ${err.message}`);
+        return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    // Handle the event
+    switch (event.type) {
+        case 'charge.refunded':
+            const refund = event.data.object;
+            console.log(`Charge was refunded!`);
+            
+            // Find the corresponding CancelledPayments document and update its status
+            await CancelledPayments.findOneAndUpdate(
+                { paymentId: refund.id },
+                { status: 'success' },
+                { new: true }
+            );
+            
+            // Optionally, log the updated document
+            console.log(`Updated payment status to success for payment ID: ${refund.id}`);
+            
+            break;
+        // ... handle other event types
+        default:
+            console.log(`Unhandled event type ${event.type}`);
+    }
+
+    // Return a response to acknowledge receipt of the event
+    res.json({ received: true });
+});
 router.use(errorHandler)
 module.exports=router;
