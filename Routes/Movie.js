@@ -770,9 +770,8 @@ router.delete('/screens/deletescreen/:id', async (req, res, next) => {
 
 // stripe webhooks
 
-router.use('/webhook',bodyParser.raw({ type: 'application/json' }));
 
-router.post('/webhook', async (req, res) => {
+router.post('/webhook', bodyParser.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
 
     let event;
