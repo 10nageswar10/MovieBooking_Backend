@@ -65,7 +65,12 @@ const bookingSchema = new mongoose.Schema({
     },
     expiresAt: {
         type: Date,
-        required: true
+        required: true,
+        default: function() {
+            const endOfShowDate = new Date(this.showDate);
+            endOfShowDate.setHours(23, 59, 59, 999);
+            return endOfShowDate;
+        }
     }
 });
 
@@ -76,6 +81,7 @@ bookingSchema.pre('save', function(next) {
     const endOfShowDate = new Date(booking.showDate);
     endOfShowDate.setHours(23, 59, 59, 999);
     booking.expiresAt = endOfShowDate;
+    console.log('Setting expiresAt to:', booking.expiresAt);
     next();
 });
 
