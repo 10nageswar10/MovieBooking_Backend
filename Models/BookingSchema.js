@@ -62,7 +62,21 @@ const bookingSchema = new mongoose.Schema({
     qrCode:{
         type: String,
         required: true
+    },
+    expiresAt: {
+        type: Date,
+        required: true
     }
+});
+
+// Middleware to set the expiration date before saving
+bookingSchema.pre('save', function(next) {
+    const booking = this;
+    // Set expiresAt to the end of the showDate (e.g., 23:59:59)
+    const endOfShowDate = new Date(booking.showDate);
+    endOfShowDate.setHours(23, 59, 59, 999);
+    booking.expiresAt = endOfShowDate;
+    next();
 });
 
 const Booking = mongoose.model('Booking', bookingSchema);
